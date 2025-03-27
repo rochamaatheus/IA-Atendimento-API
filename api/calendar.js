@@ -5,7 +5,6 @@ import { getAuthClient } from '../lib/googleAuth.js';
 import { checkApiKey } from '../lib/verifyAuth.js';
 
 const router = express.Router();
-
 const MAX_DIAS_UTEIS = 20;
 
 function parseDateParam(str) {
@@ -23,14 +22,10 @@ function parseTimeToLuxon(baseDate, timeStr) {
 function contarDiasUteis(inicio, fim) {
   let count = 0;
   let data = inicio;
-
   while (data <= fim) {
-    if (data.weekday >= 1 && data.weekday <= 5) {
-      count++;
-    }
+    if (data.weekday >= 1 && data.weekday <= 5) count++;
     data = data.plus({ days: 1 });
   }
-
   return count;
 }
 
@@ -56,9 +51,9 @@ router.post('/disponibilidade', async (req, res) => {
       : [];
 
     const horarios = Array.isArray(horariosVetados)
-      ? horariosVetados
+      ? horariosVetados.map(h => h.slice(0, 5))
       : horariosVetados
-      ? [horariosVetados]
+      ? [horariosVetados.slice(0, 5)]
       : [];
 
     const openingHour = '09:00:00';
@@ -116,7 +111,7 @@ router.post('/disponibilidade', async (req, res) => {
 
       while (slotStart < slotEnd) {
         const slotJSDate = slotStart.toJSDate();
-        const timeStr = slotStart.toFormat('HH:mm:ss');
+        const timeStr = slotStart.toFormat('HH:mm');
 
         const isBusy = busySlots.some(
           busy => slotJSDate >= busy.start && slotJSDate < busy.end,
@@ -125,7 +120,7 @@ router.post('/disponibilidade', async (req, res) => {
         const isBlocked = horarios.includes(timeStr);
 
         if (!isBusy && !isBlocked) {
-          slotsDoDia.push(slotStart.toFormat('HH:mm'));
+          slotsDoDia.push(timeStr);
         }
 
         slotStart = slotStart.plus({ minutes: slotIntervalMinutes });
