@@ -77,10 +77,9 @@ Tudo isso usando uma estrutura flexível, com módulos desacoplados e foco em ma
 .
 ├── api/
 │   ├── calendar.js       # Lógica de disponibilidade
-│   └── sheets.js         # (placeholder) integração com CRM
+│   └── sheets.js         # Integração com CRM
 ├── lib/
 │   └── googleAuth.js     # Autenticação via Service Account
-├── .env                  # Variáveis sensíveis (não subir!)
 ├── vercel.json           # Configurações de deploy
 ├── index.js              # Server principal
 ```
@@ -116,7 +115,7 @@ Tudo isso usando uma estrutura flexível, com módulos desacoplados e foco em ma
 Desenvolvedor focado em automações, back-end e integração de sistemas.  
 Apaixonado por código limpo, performático e pronto pra produção.
 
-[🔗 LinkedIn](https://linkedin.com/in/teulink)  
-[💻 GitHub](https://github.com/teuuser)
+[🔗 LinkedIn](https://www.linkedin.com/in/matheus-rocha-269870234/)  
+[💻 GitHub](https://github.com/rochamaatheus)
 
 ---
