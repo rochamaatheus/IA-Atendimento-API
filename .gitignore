@@ -3,11 +3,5 @@ node_modules/
 .env
 *.log
 
-# Google credentials
-*.json
-
-# Vercel
-.vercel
-
 # Outros
 .DS_Store
