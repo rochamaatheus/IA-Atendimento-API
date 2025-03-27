@@ -2,6 +2,7 @@ import express from 'express';
 import { google } from 'googleapis';
 import { DateTime } from 'luxon';
 import { getAuthClient } from '../lib/googleAuth.js';
+import { checkApiKey } from '../lib/verifyAuth.js';
 
 const router = express.Router();
 
@@ -34,6 +35,8 @@ function contarDiasUteis(inicio, fim) {
 }
 
 router.post('/disponibilidade', async (req, res) => {
+  if (!checkApiKey(req, res)) return;
+
   try {
     const {
       agendar_apartir_de,
