@@ -67,7 +67,7 @@ Tudo isso usando uma estrutura flexível, com módulos desacoplados e foco em ma
 | Google Calendar API   | Consulta e gerenciamento de eventos   |
 | Google Sheets API     | Integração futura para CRM            |
 | JWT (Service Account) | Autenticação com Google Workspace     |
-| Vercel                | Deploy simples e escalável            |
+| Render                | Deploy simples e escalável            |
 
 ---
 
@@ -80,7 +80,6 @@ Tudo isso usando uma estrutura flexível, com módulos desacoplados e foco em ma
 │   └── sheets.js         # Integração com CRM
 ├── lib/
 │   └── googleAuth.js     # Autenticação via Service Account
-├── vercel.json           # Configurações de deploy
 ├── index.js              # Server principal
 ```
 
