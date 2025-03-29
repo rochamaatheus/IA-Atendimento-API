@@ -9,7 +9,7 @@ import {
   normalizarISO,
 } from '../lib/dateUtils.js';
 import { calcularDisponibilidade } from '../lib/disponibilidade.js';
-import { getFromCache, setCache } from '../lib/googleCache.js';
+import { getFromCache, logCache, setCache } from '../lib/googleCache.js';
 
 dotenv.config();
 const router = express.Router();
@@ -104,10 +104,104 @@ router.post('/disponibilidade', async (req, res) => {
       validWeekDays,
     });
 
+    console.log(' - NOVO LOGO CACHE - ');
+    logCache();
     return res.json({ horariosDisponiveis });
   } catch (err) {
     console.error('[ERRO] /disponibilidade:', err.message);
     res.status(500).json({ erro: 'Falha ao consultar disponibilidade' });
+  }
+});
+
+import { resetCache } from '../lib/googleCache.js';
+
+router.post('/add-event', async (req, res) => {
+  if (!checkApiKey(req, res)) return;
+
+  try {
+    const { data, hora, titulo = 'Agendamento', descricao = '' } = req.body;
+    console.log('[DEBUG] Payload recebido:', req.body);
+
+    if (!data || !hora) {
+      return res
+        .status(400)
+        .json({ erro: 'Parâmetros obrigatórios: data e hora' });
+    }
+
+    const dataISO = normalizarISO(data);
+    const dataBase = parseDateParam(dataISO);
+
+    const [hourStr, minuteStr = '00'] = hora.trim().split(':');
+    const hour = parseInt(hourStr, 10);
+    const minute = parseInt(minuteStr, 10);
+
+    if (isNaN(hour) || isNaN(minute)) {
+      return res
+        .status(400)
+        .json({ erro: 'Hora inválida. Formato esperado: HH:mm' });
+    }
+
+    const inicio = new Date(
+      parseInt(dataBase.getFullYear(), 10),
+      parseInt(dataBase.getMonth(), 10),
+      parseInt(dataBase.getDate(), 10),
+      parseInt(hour, 10),
+      parseInt(minute, 10),
+      0,
+    );
+    const fim = new Date(inicio.getTime() + slotIntervalMinutes * 60000);
+
+    const auth = getAuthClient();
+    const calendar = google.calendar({ version: 'v3', auth });
+
+    const evento = {
+      summary: titulo,
+      description: descricao,
+      start: {
+        dateTime: inicio.toISOString(),
+        timeZone: 'America/Sao_Paulo',
+      },
+      end: {
+        dateTime: fim.toISOString(),
+        timeZone: 'America/Sao_Paulo',
+      },
+    };
+
+    // Verifica se o horário ainda está livre antes de adicionar
+    const { data: freebusy } = await calendar.freebusy.query({
+      requestBody: {
+        timeMin: inicio.toISOString(),
+        timeMax: fim.toISOString(),
+        timeZone: 'America/Sao_Paulo',
+        items: [{ id: calendarId }],
+      },
+    });
+
+    const conflitos = freebusy.calendars[calendarId].busy;
+
+    if (conflitos.length > 0) {
+      return res.status(409).json({
+        erro: 'Horário indisponível. Já existe um evento neste intervalo.',
+        conflitos,
+      });
+    }
+
+    const response = await calendar.events.insert({
+      calendarId,
+      requestBody: evento,
+    });
+
+    // Limpar cache
+    resetCache();
+
+    return res.status(201).json({
+      mensagem: 'Evento criado com sucesso',
+      eventoId: response.data.id,
+      horario: dataISO + ' ' + hora,
+    });
+  } catch (err) {
+    console.error('[ERRO] /add-event:', err.message);
+    res.status(500).json({ erro: 'Erro ao adicionar evento no calendário' });
   }
 });
 
