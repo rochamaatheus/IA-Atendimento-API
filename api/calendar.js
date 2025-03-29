@@ -9,6 +9,7 @@ import {
   normalizarISO,
 } from '../lib/dateUtils.js';
 import { calcularDisponibilidade } from '../lib/disponibilidade.js';
+import { getFromCache, setCache } from '../lib/googleCache.js';
 
 dotenv.config();
 const router = express.Router();
@@ -46,32 +47,50 @@ router.post('/disponibilidade', async (req, res) => {
       : [horariosVetados.slice(0, 5)];
 
     const startDay = parseDateParam(agendar_apartir_de);
-    const endDay = parseDateParam(agendar_ateh);
+    let endDay = parseDateParam(agendar_ateh);
 
-    const diasUteisNoIntervalo = contarDiasUteis(startDay, endDay);
+    let diasUteisNoIntervalo = contarDiasUteis(startDay, endDay);
+
     if (diasUteisNoIntervalo > MAX_DIAS_UTEIS) {
-      return res.status(400).json({
-        erro: `O período solicitado excede o limite de ${MAX_DIAS_UTEIS} dias úteis permitidos.`,
-        diasUteisSolicitados: diasUteisNoIntervalo,
-      });
+      let diasCortados = 0;
+      let dataLimite = new Date(startDay);
+
+      while (diasCortados < MAX_DIAS_UTEIS) {
+        const diaSemana = dataLimite.getDay();
+        if (diaSemana >= 1 && diaSemana <= 5) diasCortados++;
+        if (diasCortados < MAX_DIAS_UTEIS) {
+          dataLimite.setDate(dataLimite.getDate() + 1);
+        }
+      }
+
+      endDay = new Date(dataLimite);
+      diasUteisNoIntervalo = MAX_DIAS_UTEIS;
     }
 
     const auth = getAuthClient();
     const calendar = google.calendar({ version: 'v3', auth });
 
-    const { data } = await calendar.freebusy.query({
-      requestBody: {
-        timeMin: new Date(startDay.getTime()).toISOString(),
-        timeMax: new Date(endDay.getTime() + 24 * 60 * 60 * 1000).toISOString(),
-        timeZone: 'America/Sao_Paulo',
-        items: [{ id: calendarId }],
-      },
-    });
+    let busySlots = getFromCache(calendarId, startDay, endDay);
 
-    const busySlots = data.calendars[calendarId].busy.map(slot => ({
-      start: new Date(slot.start),
-      end: new Date(slot.end),
-    }));
+    if (!busySlots) {
+      const { data } = await calendar.freebusy.query({
+        requestBody: {
+          timeMin: new Date(startDay.getTime()).toISOString(),
+          timeMax: new Date(
+            endDay.getTime() + 24 * 60 * 60 * 1000,
+          ).toISOString(),
+          timeZone: 'America/Sao_Paulo',
+          items: [{ id: calendarId }],
+        },
+      });
+
+      busySlots = data.calendars[calendarId].busy.map(slot => ({
+        start: new Date(slot.start),
+        end: new Date(slot.end),
+      }));
+
+      setCache(calendarId, startDay, endDay, busySlots);
+    }
 
     const horariosDisponiveis = calcularDisponibilidade({
       startDay,
