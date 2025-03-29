@@ -1,33 +1,26 @@
 import express from 'express';
 import { google } from 'googleapis';
-import { DateTime } from 'luxon';
+import dotenv from 'dotenv';
 import { getAuthClient } from '../lib/googleAuth.js';
 import { checkApiKey } from '../lib/verifyAuth.js';
+import {
+  parseDateParam,
+  contarDiasUteis,
+  normalizarISO,
+} from '../lib/dateUtils.js';
+import { calcularDisponibilidade } from '../lib/disponibilidade.js';
 
+dotenv.config();
 const router = express.Router();
-const MAX_DIAS_UTEIS = 20;
 
-function parseDateParam(str) {
-  return DateTime.fromISO(str, { zone: 'utc' })
-    .plus({ hours: 3 })
-    .setZone('America/Sao_Paulo')
-    .startOf('day');
-}
-
-function parseTimeToLuxon(baseDate, timeStr) {
-  const [hour, minute, second] = timeStr.split(':').map(Number);
-  return baseDate.set({ hour, minute, second });
-}
-
-function contarDiasUteis(inicio, fim) {
-  let count = 0;
-  let data = inicio;
-  while (data <= fim) {
-    if (data.weekday >= 1 && data.weekday <= 5) count++;
-    data = data.plus({ days: 1 });
-  }
-  return count;
-}
+const MAX_DIAS_UTEIS = parseInt(process.env.MAX_WORK_DAYS || '20', 10);
+const openingHour = process.env.OPENING_HOUR || '09:00:00';
+const closingHour = process.env.CLOSING_HOUR || '18:00:00';
+const slotIntervalMinutes = parseInt(process.env.INTERVAL_MINUTES || '60', 10);
+const validWeekDays = (process.env.VALID_WEEKDAYS || '1,2,3,4,5')
+  .split(',')
+  .map(Number);
+const calendarId = process.env.GOOGLE_CALENDAR_ID;
 
 router.post('/disponibilidade', async (req, res) => {
   if (!checkApiKey(req, res)) return;
@@ -45,21 +38,12 @@ router.post('/disponibilidade', async (req, res) => {
     }
 
     const dias = Array.isArray(diasVetados)
-      ? diasVetados
-      : diasVetados
-      ? [diasVetados]
-      : [];
+      ? diasVetados.map(normalizarISO)
+      : [normalizarISO(diasVetados)];
 
     const horarios = Array.isArray(horariosVetados)
       ? horariosVetados.map(h => h.slice(0, 5))
-      : horariosVetados
-      ? [horariosVetados.slice(0, 5)]
-      : [];
-
-    const openingHour = '09:00:00';
-    const closingHour = '18:00:00';
-    const slotIntervalMinutes = 60;
-    const validWeekDays = [1, 2, 3, 4, 5];
+      : [horariosVetados.slice(0, 5)];
 
     const startDay = parseDateParam(agendar_apartir_de);
     const endDay = parseDateParam(agendar_ateh);
@@ -77,65 +61,33 @@ router.post('/disponibilidade', async (req, res) => {
 
     const { data } = await calendar.freebusy.query({
       requestBody: {
-        timeMin: parseTimeToLuxon(startDay, openingHour).toISO(),
-        timeMax: parseTimeToLuxon(endDay, closingHour).toISO(),
+        timeMin: new Date(startDay.getTime()).toISOString(),
+        timeMax: new Date(endDay.getTime() + 24 * 60 * 60 * 1000).toISOString(),
         timeZone: 'America/Sao_Paulo',
-        items: [{ id: 'matheussilveirarocha.sc@gmail.com' }],
+        items: [{ id: calendarId }],
       },
     });
 
-    const busySlots = data.calendars[
-      'matheussilveirarocha.sc@gmail.com'
-    ].busy.map(slot => ({
+    const busySlots = data.calendars[calendarId].busy.map(slot => ({
       start: new Date(slot.start),
       end: new Date(slot.end),
     }));
 
-    const horariosDisponiveis = {};
-    let currentDate = startDay;
-
-    while (currentDate <= endDay) {
-      const currentISO = currentDate.toISODate();
-
-      if (
-        !validWeekDays.includes(currentDate.weekday) ||
-        dias.includes(currentISO)
-      ) {
-        currentDate = currentDate.plus({ days: 1 });
-        continue;
-      }
-
-      let slotStart = parseTimeToLuxon(currentDate, openingHour);
-      const slotEnd = parseTimeToLuxon(currentDate, closingHour);
-      const slotsDoDia = [];
-
-      while (slotStart < slotEnd) {
-        const slotJSDate = slotStart.toJSDate();
-        const timeStr = slotStart.toFormat('HH:mm');
-
-        const isBusy = busySlots.some(
-          busy => slotJSDate >= busy.start && slotJSDate < busy.end,
-        );
-
-        const isBlocked = horarios.includes(timeStr);
-
-        if (!isBusy && !isBlocked) {
-          slotsDoDia.push(timeStr);
-        }
-
-        slotStart = slotStart.plus({ minutes: slotIntervalMinutes });
-      }
-
-      if (slotsDoDia.length > 0) {
-        horariosDisponiveis[currentISO] = slotsDoDia;
-      }
-
-      currentDate = currentDate.plus({ days: 1 });
-    }
+    const horariosDisponiveis = calcularDisponibilidade({
+      startDay,
+      endDay,
+      diasVetados: dias,
+      horariosVetados: horarios,
+      busySlots,
+      openingHour,
+      closingHour,
+      slotIntervalMinutes,
+      validWeekDays,
+    });
 
     return res.json({ horariosDisponiveis });
   } catch (err) {
-    console.error('Erro ao calcular disponibilidade:', err);
+    console.error('[ERRO] /disponibilidade:', err.message);
     res.status(500).json({ erro: 'Falha ao consultar disponibilidade' });
   }
 });
