@@ -1,52 +1,39 @@
-// api/sheets.js
 import express from 'express';
-import { google } from 'googleapis';
 import { getAuthClient } from '../lib/googleAuth.js';
 import { checkApiKey } from '../lib/verifyAuth.js';
-import { normalizarTelefone } from '../lib/sheetsUtils.js';
+import { normalizarTelefone, normalizarCPF } from '../lib/sheetsUtils.js';
+import {
+  getSheetsClient,
+  buscarDadosPlanilha,
+  encontrarUsuarioPorTelefone,
+  adicionarLinha,
+} from '../lib/sheetsService.js';
 
 const router = express.Router();
+const spreadsheetId = '1Ib3yOXjDEQLmUyzhrXPjPUhxqyy6CNHwncIC81i70GE';
+const range = 'Página1!A1:E';
 
 router.post('/usuario', async (req, res) => {
   if (!checkApiKey(req, res)) return;
 
   try {
-    const telefoneBruto = req.body.telefone;
-    if (!telefoneBruto) {
+    const telefone = req.body.telefone;
+    if (!telefone) {
       return res.status(400).json({ erro: 'Telefone é obrigatório' });
     }
 
-    const telefoneNormalizado = normalizarTelefone(telefoneBruto);
-
     const auth = getAuthClient();
-    const sheets = google.sheets({ version: 'v4', auth });
+    const sheets = getSheetsClient(auth);
 
-    const spreadsheetId = '1Ib3yOXjDEQLmUyzhrXPjPUhxqyy6CNHwncIC81i70GE';
-    const range = 'Página1!A1:E';
-
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range,
-    });
-
-    const valores = response.data.values;
+    const valores = await buscarDadosPlanilha(sheets, spreadsheetId, range);
     const cabecalho = valores[0];
-    const colunaTelefoneIndex = cabecalho.findIndex(
-      t => t.toLowerCase() === 'telefone',
-    );
+    const resultado = encontrarUsuarioPorTelefone(valores, telefone);
 
-    if (colunaTelefoneIndex === -1) {
-      return res.status(500).json({ erro: 'Coluna Telefone não encontrada' });
-    }
-
-    const usuario = valores.slice(1).find(linha => {
-      const telDaLinha = normalizarTelefone(linha[colunaTelefoneIndex] || '');
-      return telDaLinha === telefoneNormalizado;
-    });
-
-    if (!usuario) {
+    if (!resultado) {
       return res.status(404).json({ erro: 'Usuário não encontrado' });
     }
+
+    const { usuario } = resultado;
 
     const dados = {};
     cabecalho.forEach((coluna, i) => {
@@ -57,6 +44,43 @@ router.post('/usuario', async (req, res) => {
   } catch (err) {
     console.error('[ERRO] /usuario:', err.message);
     res.status(500).json({ erro: 'Erro ao buscar usuário' });
+  }
+});
+
+router.post('/registrar-lead', async (req, res) => {
+  if (!checkApiKey(req, res)) return;
+
+  try {
+    const { cpf = '', nome = '', telefone } = req.body;
+    if (!telefone) {
+      return res.status(400).json({ erro: 'Telefone é obrigatório' });
+    }
+
+    const telefoneNormalizado = normalizarTelefone(telefone);
+    const cpfFormatado = normalizarCPF(cpf);
+
+    const auth = getAuthClient();
+    const sheets = getSheetsClient(auth);
+    const valores = await buscarDadosPlanilha(sheets, spreadsheetId, range);
+    const resultado = encontrarUsuarioPorTelefone(valores, telefone);
+
+    if (resultado) {
+      return res
+        .status(409)
+        .json({ erro: 'Telefone já cadastrado na planilha' });
+    }
+
+    const novaLinha = [cpfFormatado, nome, `'${telefoneNormalizado}`, '', ''];
+
+    await adicionarLinha(sheets, spreadsheetId, novaLinha);
+
+    res.status(201).json({
+      mensagem: 'Lead registrado com sucesso',
+      lead: { cpfFormatado, nome, telefone: telefoneNormalizado },
+    });
+  } catch (err) {
+    console.error('[ERRO] /registrar-lead:', err.message);
+    res.status(500).json({ erro: 'Erro ao registrar lead na planilha' });
   }
 });
 

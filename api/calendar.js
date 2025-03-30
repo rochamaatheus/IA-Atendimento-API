@@ -10,7 +10,16 @@ import {
   normalizarISO,
 } from '../lib/dateUtils.js';
 import { calcularDisponibilidade } from '../lib/disponibilidade.js';
-import { getFromCache, logCache, setCache } from '../lib/googleCache.js';
+import {
+  getFromCache,
+  logCache,
+  setCache,
+  resetCache,
+} from '../lib/googleCache.js';
+import {
+  verificarConflitoHorario,
+  criarEventoCalendar,
+} from '../lib/googleCalendarUtils.js';
 
 dotenv.config();
 const router = express.Router();
@@ -69,11 +78,10 @@ router.post('/disponibilidade', async (req, res) => {
     }
 
     const auth = getAuthClient();
-    const calendar = google.calendar({ version: 'v3', auth });
-
     let busySlots = getFromCache(calendarId, startDay, endDay);
 
     if (!busySlots) {
+      const calendar = google.calendar({ version: 'v3', auth });
       const { data } = await calendar.freebusy.query({
         requestBody: {
           timeMin: new Date(startDay.getTime()).toISOString(),
@@ -114,8 +122,6 @@ router.post('/disponibilidade', async (req, res) => {
   }
 });
 
-import { resetCache } from '../lib/googleCache.js';
-
 router.post('/add-event', async (req, res) => {
   if (!checkApiKey(req, res)) return;
 
@@ -143,61 +149,41 @@ router.post('/add-event', async (req, res) => {
     }
 
     const inicio = new Date(
-      parseInt(dataBase.getFullYear(), 10),
-      parseInt(dataBase.getMonth(), 10),
-      parseInt(dataBase.getDate(), 10),
-      parseInt(hour, 10),
-      parseInt(minute, 10),
+      dataBase.getFullYear(),
+      dataBase.getMonth(),
+      dataBase.getDate(),
+      hour,
+      minute,
       0,
     );
     const fim = new Date(inicio.getTime() + slotIntervalMinutes * 60000);
 
     const auth = getAuthClient();
-    const calendar = google.calendar({ version: 'v3', auth });
 
-    const evento = {
-      summary: titulo,
-      description: descricao,
-      start: {
-        dateTime: inicio.toISOString(),
-        timeZone: 'America/Sao_Paulo',
-      },
-      end: {
-        dateTime: fim.toISOString(),
-        timeZone: 'America/Sao_Paulo',
-      },
-    };
-
-    // Verifica se o horário ainda está livre antes de adicionar
-    const { data: freebusy } = await calendar.freebusy.query({
-      requestBody: {
-        timeMin: inicio.toISOString(),
-        timeMax: fim.toISOString(),
-        timeZone: 'America/Sao_Paulo',
-        items: [{ id: calendarId }],
-      },
-    });
-
-    const conflitos = freebusy.calendars[calendarId].busy;
-
-    if (conflitos.length > 0) {
+    const temConflito = await verificarConflitoHorario(
+      auth,
+      calendarId,
+      inicio,
+      fim,
+    );
+    if (temConflito) {
       return res.status(409).json({
         erro: 'Horário indisponível. Já existe um evento neste intervalo.',
-        conflitos,
       });
     }
 
-    const response = await calendar.events.insert({
-      calendarId,
-      requestBody: evento,
+    const eventoId = await criarEventoCalendar(auth, calendarId, {
+      nome: titulo,
+      descricao,
+      inicio,
+      fim,
     });
 
-    // Limpar cache
     resetCache();
 
     return res.status(201).json({
       mensagem: 'Evento criado com sucesso',
-      eventoId: response.data.id,
+      eventoId,
       horario: dataISO + ' ' + hora,
     });
   } catch (err) {
