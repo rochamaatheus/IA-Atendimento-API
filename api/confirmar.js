@@ -1,16 +1,29 @@
 import express from 'express';
-import { google } from 'googleapis';
+import dotenv from 'dotenv';
 import { checkApiKey } from '../lib/verifyAuth.js';
 import { getAuthClient } from '../lib/googleAuth.js';
-import { parseDateParam, normalizarISO } from '../lib/dateUtils.js';
 import {
-  normalizarTelefone,
-  normalizarCPF,
-  buscarUsuarioPorTelefone,
-} from '../lib/sheetsUtils.js';
+  parseDateParam,
+  normalizarISO,
+  formatarDataBrasileira,
+} from '../lib/dateUtils.js';
+import { normalizarTelefone } from '../lib/sheetsUtils.js';
+import {
+  atualizarConsultaNaPlanilha,
+  adicionarNovaLinhaLead,
+  buscarDadosPlanilha,
+  getSheetsClient,
+} from '../lib/sheetsService.js';
+import {
+  verificarConflitoHorario,
+  criarEventoCalendar,
+} from '../lib/googleCalendarUtils.js';
 import { resetCache } from '../lib/googleCache.js';
 
+dotenv.config();
 const router = express.Router();
+const calendarId = process.env.GOOGLE_CALENDAR_ID;
+const spreadsheetId = '1Ib3yOXjDEQLmUyzhrXPjPUhxqyy6CNHwncIC81i70GE';
 
 router.post('/confirmar-agendamento', async (req, res) => {
   if (!checkApiKey(req, res)) return;
@@ -23,7 +36,6 @@ router.post('/confirmar-agendamento', async (req, res) => {
     }
 
     const telefoneNormalizado = normalizarTelefone(telefone);
-    const cpfFormatado = normalizarCPF(cpf);
     const dataISO = normalizarISO(data_agendamento);
     const dataBase = parseDateParam(dataISO);
 
@@ -41,92 +53,52 @@ router.post('/confirmar-agendamento', async (req, res) => {
       minute,
       0,
     );
-
     const fim = new Date(inicio.getTime() + 60 * 60000);
+    const dataFormatada = formatarDataBrasileira(dataBase);
 
-    // Verificar conflitos no Google Calendar
     const auth = getAuthClient();
-    const calendar = google.calendar({ version: 'v3', auth });
-    const calendarId = process.env.GOOGLE_CALENDAR_ID;
-    const sheets = google.sheets({ version: 'v4', auth });
-    const spreadsheetId = '1Ib3yOXjDEQLmUyzhrXPjPUhxqyy6CNHwncIC81i70GE';
-    const range = 'Página1!A1:E';
+    const sheets = getSheetsClient(auth);
 
-    const { data: busy } = await calendar.freebusy.query({
-      requestBody: {
-        timeMin: inicio.toISOString(),
-        timeMax: fim.toISOString(),
-        timeZone: 'America/Sao_Paulo',
-        items: [{ id: calendarId }],
-      },
-    });
-
-    if (busy.calendars[calendarId].busy.length > 0) {
-      return res.status(409).json({
-        erro: 'Horário já está ocupado no calendário',
-      });
+    // Verifica conflito
+    const conflito = await verificarConflitoHorario(
+      auth,
+      calendarId,
+      inicio,
+      fim,
+    );
+    if (conflito) {
+      return res.status(409).json({ erro: 'Horário já ocupado no calendário' });
     }
 
-    // Criar evento no Google Calendar
-    const evento = {
-      summary: `Consulta - ${nome}`,
-      description: `Agendamento confirmado para ${nome}`,
-      start: { dateTime: inicio.toISOString(), timeZone: 'America/Sao_Paulo' },
-      end: { dateTime: fim.toISOString(), timeZone: 'America/Sao_Paulo' },
-    };
-
-    await calendar.events.insert({
-      calendarId,
-      requestBody: evento,
+    // Cria evento
+    await criarEventoCalendar(auth, calendarId, {
+      nome,
+      descricao: `Agendamento confirmado para ${nome}`,
+      inicio,
+      fim,
     });
 
-    // Atualizar planilha
-    const { data: planilha } = await sheets.spreadsheets.values.get({
+    // Atualiza ou adiciona linha na planilha
+    const valores = await buscarDadosPlanilha(
+      sheets,
       spreadsheetId,
-      range,
-    });
+      'Página1!A1:E',
+    );
 
-    const valores = planilha.values || [];
-    const usuario = buscarUsuarioPorTelefone(valores, telefoneNormalizado);
+    const atualizado = await atualizarConsultaNaPlanilha(
+      sheets,
+      spreadsheetId,
+      telefoneNormalizado,
+      dataFormatada,
+      valores,
+    );
 
-    if (usuario) {
-      // Atualizar linha existente
-      const index = valores.findIndex(
-        l => l[2] && normalizarTelefone(l[2]) === telefoneNormalizado,
-      );
-      const linhaIndex = index + 1; // índice real (1-based)
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `Página1!E${linhaIndex}`,
-        valueInputOption: 'USER_ENTERED',
-        requestBody: {
-          values: [
-            [
-              `${String(dataBase.getDate()).padStart(2, '0')}/${String(
-                dataBase.getMonth() + 1,
-              ).padStart(2, '0')}/${dataBase.getFullYear()}`,
-            ],
-          ],
-        },
-      });
-    } else {
-      // Adicionar nova linha
-      const novaLinha = [
-        cpfFormatado,
+    if (!atualizado) {
+      await adicionarNovaLinhaLead(sheets, spreadsheetId, {
+        cpf,
         nome,
-        `'${telefoneNormalizado}`,
-        '',
-        `${String(dataBase.getDate()).padStart(2, '0')}/${String(
-          dataBase.getMonth() + 1,
-        ).padStart(2, '0')}/${dataBase.getFullYear()}`,
-      ];
-
-      await sheets.spreadsheets.values.append({
-        spreadsheetId,
-        range: 'Página1!A:E',
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [novaLinha] },
+        telefone,
+        dataConsulta: dataFormatada,
       });
     }
 
