@@ -18,6 +18,7 @@ import {
   verificarConflitoHorario,
   criarEventoCalendar,
 } from '../lib/googleCalendarUtils.js';
+import { google } from 'googleapis';
 import { resetCache } from '../lib/googleCache.js';
 
 dotenv.config();
