@@ -126,13 +126,12 @@ router.post('/add-event', async (req, res) => {
   if (!checkApiKey(req, res)) return;
 
   try {
-    const { data, hora, titulo = 'Agendamento', descricao = '' } = req.body;
-    console.log('[DEBUG] Payload recebido:', req.body);
+    const { data, hora, titulo = 'Agendamento', telefone } = req.body;
 
-    if (!data || !hora) {
+    if (!data || !hora || !telefone) {
       return res
         .status(400)
-        .json({ erro: 'Parâmetros obrigatórios: data e hora' });
+        .json({ erro: 'Parâmetros obrigatórios: data, hora e telefone' });
     }
 
     const dataISO = normalizarISO(data);
@@ -174,7 +173,7 @@ router.post('/add-event', async (req, res) => {
 
     const eventoId = await criarEventoCalendar(auth, calendarId, {
       nome: titulo,
-      descricao,
+      telefone,
       inicio,
       fim,
     });
