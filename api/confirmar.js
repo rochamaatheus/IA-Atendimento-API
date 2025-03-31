@@ -17,6 +17,7 @@ import {
 import {
   verificarConflitoHorario,
   criarEventoCalendar,
+  parseHorarioLocal,
 } from '../lib/googleCalendarUtils.js';
 import { google } from 'googleapis';
 import { resetCache } from '../lib/googleCache.js';
@@ -40,21 +41,9 @@ router.post('/confirmar-agendamento', async (req, res) => {
     const dataISO = normalizarISO(data_agendamento);
     const dataBase = parseDateParam(dataISO);
 
-    const [hourStr, minuteStr = '00'] = data_agendamento
-      .split(' ')[1]
-      .split(':');
-    const hour = parseInt(hourStr, 10);
-    const minute = parseInt(minuteStr, 10);
-
-    const inicio = new Date(
-      dataBase.getFullYear(),
-      dataBase.getMonth(),
-      dataBase.getDate(),
-      hour,
-      minute,
-      0,
-    );
+    const inicio = parseHorarioLocal(data_agendamento);
     const fim = new Date(inicio.getTime() + 60 * 60000);
+
     const dataFormatada = formatarDataBrasileira(dataBase);
 
     const auth = getAuthClient();
