@@ -128,6 +128,7 @@ router.post('/atualizar-usuario', async (req, res) => {
 
     novaLinha[colCPF] = cpfFormatado;
     novaLinha[colNome] = nome;
+    novaLinha[colTelefone] = `'${telefoneNormalizado}`;
 
     const rangeLinha = `Página1!A${linhaIndex + 2}:Z${linhaIndex + 2}`;
     await sheets.spreadsheets.values.update({
