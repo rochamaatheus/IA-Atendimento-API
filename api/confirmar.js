@@ -6,6 +6,7 @@ import {
   parseDateParam,
   normalizarISO,
   formatarDataBrasileira,
+  parseDataHoraLocal,
 } from '../lib/dateUtils.js';
 import { normalizarTelefone } from '../lib/sheetsUtils.js';
 import {
@@ -17,7 +18,6 @@ import {
 import {
   verificarConflitoHorario,
   criarEventoCalendar,
-  parseHorarioLocal,
 } from '../lib/googleCalendarUtils.js';
 import { google } from 'googleapis';
 import { resetCache } from '../lib/googleCache.js';
@@ -41,7 +41,15 @@ router.post('/confirmar-agendamento', async (req, res) => {
     const dataISO = normalizarISO(data_agendamento);
     const dataBase = parseDateParam(dataISO);
 
-    const inicio = parseHorarioLocal(data_agendamento);
+    const inicio = parseDataHoraLocal(data_agendamento);
+    console.log('▶️ Date padrão:', inicio); // vai aparecer em UTC (Z)
+    console.log('▶️ .toString():', inicio.toString()); // mostra o horário LOCAL
+    console.log(
+      '▶️ .toLocaleString():',
+      inicio.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+    );
+    console.log('▶️ .getHours():', inicio.getHours());
+
     const fim = new Date(inicio.getTime() + 60 * 60000);
 
     const dataFormatada = formatarDataBrasileira(dataBase);
