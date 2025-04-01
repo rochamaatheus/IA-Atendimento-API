@@ -42,14 +42,6 @@ router.post('/confirmar-agendamento', async (req, res) => {
     const dataBase = parseDateParam(dataISO);
 
     const inicio = parseDataHoraLocal(data_agendamento);
-    console.log('▶️ Date padrão:', inicio); // vai aparecer em UTC (Z)
-    console.log('▶️ .toString():', inicio.toString()); // mostra o horário LOCAL
-    console.log(
-      '▶️ .toLocaleString():',
-      inicio.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-    );
-    console.log('▶️ .getHours():', inicio.getHours());
-
     const fim = new Date(inicio.getTime() + 60 * 60000);
 
     const dataFormatada = formatarDataBrasileira(dataBase);
